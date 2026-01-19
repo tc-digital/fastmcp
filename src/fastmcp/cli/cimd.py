@@ -145,9 +145,7 @@ def validate(
             if "client_uri" in data:
                 console.print(f"[dim]Client URI:[/dim] {data['client_uri']}")
         else:
-            console.print(
-                f"[red]✗[/red] {file} is not a valid CIMD document"
-            )
+            console.print(f"[red]✗[/red] {file} is not a valid CIMD document")
             console.print(f"[red]Error:[/red] {error}")
             sys.exit(1)
 

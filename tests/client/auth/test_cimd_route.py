@@ -15,7 +15,7 @@ def test_cimd_route_initialization():
         client_name="Test Client",
         redirect_uris=["http://localhost:8080/callback"],
     )
-    
+
     assert route.client_name == "Test Client"
     assert route.redirect_uris == ["http://localhost:8080/callback"]
     assert route.path == "/.well-known/mcp-client.json"
@@ -29,7 +29,7 @@ def test_cimd_route_custom_path():
         redirect_uris=["http://localhost:*/callback"],
         path="/custom/cimd.json",
     )
-    
+
     assert route.path == "/custom/cimd.json"
 
 
@@ -42,7 +42,7 @@ def test_cimd_route_with_metadata():
         logo_uri="https://example.com/logo.png",
         scope="read write",
     )
-    
+
     assert route.client_uri == "https://example.com"
     assert route.logo_uri == "https://example.com/logo.png"
     assert route.scope == "read write"
@@ -55,7 +55,7 @@ def test_cimd_route_document_generation():
         redirect_uris=["http://localhost:*/callback"],
         client_uri="https://example.com",
     )
-    
+
     doc = route._document
     assert doc["client_name"] == "Test Client"
     assert doc["redirect_uris"] == ["http://localhost:*/callback"]
@@ -71,11 +71,10 @@ async def test_cimd_route_handle():
         client_name="Test Client",
         redirect_uris=["http://localhost:8080/callback"],
     )
-    
+
     # Create a mock request
     from starlette.requests import Request
-    from starlette.datastructures import Headers
-    
+
     scope = {
         "type": "http",
         "method": "GET",
@@ -83,16 +82,16 @@ async def test_cimd_route_handle():
         "query_string": b"",
         "headers": [],
     }
-    
+
     request = Request(scope)
     response = await route.handle(request)
-    
+
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/json"
     assert "max-age=86400" in response.headers["cache-control"]
-    
+
     # Parse response body
-    body = json.loads(response.body.decode())
+    body = json.loads(response.body.decode())  # type: ignore[union-attr]
     assert body["client_name"] == "Test Client"
     assert body["redirect_uris"] == ["http://localhost:8080/callback"]
 
@@ -103,11 +102,11 @@ def test_cimd_route_as_starlette_route():
         client_name="Test Client",
         redirect_uris=["http://localhost:8080/callback"],
     )
-    
+
     starlette_route = cimd_route.as_starlette_route()
-    
+
     assert starlette_route.path == "/.well-known/mcp-client.json"
-    assert "GET" in starlette_route.methods
+    assert starlette_route.methods and "GET" in starlette_route.methods
     assert starlette_route.name == "cimd-document"
 
 
@@ -118,17 +117,17 @@ def test_cimd_route_in_starlette_app():
         redirect_uris=["http://localhost:8080/callback"],
         client_uri="https://example.com",
     )
-    
+
     app = Starlette(
         routes=[cimd_route.as_starlette_route()],
     )
-    
+
     with TestClient(app) as client:
         response = client.get("/.well-known/mcp-client.json")
-        
+
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/json"
-        
+
         data = response.json()
         assert data["client_name"] == "Test Client"
         assert data["redirect_uris"] == ["http://localhost:8080/callback"]
@@ -141,10 +140,10 @@ def test_cimd_route_get_client_id_url():
         client_name="Test Client",
         redirect_uris=["http://localhost:*/callback"],
     )
-    
+
     client_id = route.get_client_id_url("https://my-server.com")
     assert client_id == "https://my-server.com/.well-known/mcp-client.json"
-    
+
     # Test with trailing slash
     client_id2 = route.get_client_id_url("https://my-server.com/")
     assert client_id2 == "https://my-server.com/.well-known/mcp-client.json"
@@ -157,6 +156,6 @@ def test_cimd_route_get_client_id_url_custom_path():
         redirect_uris=["http://localhost:*/callback"],
         path="/custom/path.json",
     )
-    
+
     client_id = route.get_client_id_url("https://my-server.com")
     assert client_id == "https://my-server.com/custom/path.json"

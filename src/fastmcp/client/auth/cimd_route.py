@@ -7,9 +7,6 @@ helper makes it easy to self-host the CIMD document directly from the server.
 
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import AnyHttpUrl
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -19,17 +16,17 @@ from fastmcp.server.auth.cimd import create_cimd_document
 
 class CIMDRoute:
     """Route helper for self-hosting CIMD documents.
-    
+
     This allows a FastMCP server to host its own CIMD document, which is useful
     when the server also acts as a client to other MCP servers.
-    
+
     Example:
         ```python
         from fastmcp import FastMCP
         from fastmcp.client.auth import CIMDRoute
-        
+
         mcp = FastMCP("My Aggregator")
-        
+
         # Self-host CIMD document
         cimd_route = CIMDRoute(
             client_name="My Aggregator",
@@ -37,11 +34,11 @@ class CIMDRoute:
             client_uri="https://my-aggregator.com",
         )
         mcp.add_route(cimd_route.as_starlette_route())
-        
+
         # Now use that URL as your client identity when connecting to upstream servers
         ```
     """
-    
+
     def __init__(
         self,
         client_name: str,
@@ -54,7 +51,7 @@ class CIMDRoute:
         path: str = "/.well-known/mcp-client.json",
     ):
         """Initialize CIMD route.
-        
+
         Args:
             client_name: Human-readable name of your client
             redirect_uris: List of redirect URIs (use "http://localhost:*/callback" for wildcards)
@@ -71,7 +68,7 @@ class CIMDRoute:
         self.grant_types = grant_types or ["authorization_code"]
         self.scope = scope
         self.path = path
-        
+
         # Pre-generate the CIMD document
         self._document = create_cimd_document(
             client_name=client_name,
@@ -81,10 +78,10 @@ class CIMDRoute:
             grant_types=grant_types,
             scope=scope,
         )
-    
+
     async def handle(self, request: Request) -> JSONResponse:
         """Handle requests for the CIMD document.
-        
+
         Returns the pre-generated CIMD document as JSON with appropriate headers.
         """
         return JSONResponse(
@@ -94,12 +91,12 @@ class CIMDRoute:
                 "Content-Type": "application/json",
             },
         )
-    
+
     def as_starlette_route(self) -> Route:
         """Convert to a Starlette Route object.
-        
+
         This can be added to a FastMCP server using `mcp.add_route()`.
-        
+
         Returns:
             Starlette Route object configured to serve the CIMD document
         """
@@ -109,16 +106,16 @@ class CIMDRoute:
             methods=["GET"],
             name="cimd-document",
         )
-    
+
     def get_client_id_url(self, base_url: str) -> str:
         """Get the full client_id URL for this CIMD document.
-        
+
         Args:
             base_url: Base URL of your server (e.g., "https://my-aggregator.com")
-            
+
         Returns:
             Full URL to the CIMD document (your client_id)
-            
+
         Example:
             ```python
             cimd_route = CIMDRoute(client_name="My App", redirect_uris=[...])

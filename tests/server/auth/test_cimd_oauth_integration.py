@@ -1,14 +1,12 @@
 """Tests for CIMD integration in OAuthProxy."""
 
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from key_value.aio.stores.memory import MemoryStore
-from mcp.server.auth.provider import AuthorizationParams
 from pydantic import AnyUrl
 
-from fastmcp.server.auth.cimd import CIMDFetcher, CIMDTrustPolicy
+from fastmcp.server.auth.cimd import CIMDTrustPolicy
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 
@@ -30,7 +28,7 @@ def oauth_proxy(cimd_trust_policy):
         issuer="https://example.com",
         required_scopes=["read"],
     )
-    
+
     proxy = OAuthProxy(
         upstream_authorization_endpoint="https://idp.example.com/authorize",
         upstream_token_endpoint="https://idp.example.com/token",
@@ -41,7 +39,7 @@ def oauth_proxy(cimd_trust_policy):
         client_storage=MemoryStore(),
         cimd_trust_policy=cimd_trust_policy,
     )
-    
+
     return proxy
 
 
@@ -49,7 +47,7 @@ def oauth_proxy(cimd_trust_policy):
 async def test_get_client_with_cimd_url(oauth_proxy):
     """Test getting a client with a CIMD URL."""
     client_id_url = "https://app.example.com/cimd.json"
-    
+
     # Mock CIMD document
     mock_doc = Mock()
     mock_doc.client_name = "Test CIMD Client"
@@ -57,7 +55,7 @@ async def test_get_client_with_cimd_url(oauth_proxy):
     mock_doc.grant_types = ["authorization_code"]
     mock_doc.scope = "read write"
     mock_doc.token_endpoint_auth_method = "none"
-    
+
     # Mock the fetcher
     with patch.object(
         oauth_proxy._cimd_fetcher,
@@ -65,7 +63,7 @@ async def test_get_client_with_cimd_url(oauth_proxy):
         return_value=mock_doc,
     ) as mock_fetch:
         client = await oauth_proxy.get_client(client_id_url)
-        
+
         assert client is not None
         assert client.client_id == client_id_url
         assert client.client_name == "Test CIMD Client"
@@ -78,14 +76,14 @@ async def test_get_client_with_traditional_dcr(oauth_proxy):
     """Test getting a client with traditional DCR ID."""
     # Register a traditional DCR client
     from mcp.shared.auth import OAuthClientInformationFull
-    
+
     dcr_client = OAuthClientInformationFull(
         client_id="dcr-client-123",
         redirect_uris=[AnyUrl("http://localhost:8080/callback")],
     )
-    
+
     await oauth_proxy.register_client(dcr_client)
-    
+
     # Should load from storage
     client = await oauth_proxy.get_client("dcr-client-123")
     assert client is not None
@@ -96,7 +94,7 @@ async def test_get_client_with_traditional_dcr(oauth_proxy):
 async def test_cimd_client_failed_fetch(oauth_proxy):
     """Test handling of CIMD fetch failure."""
     client_id_url = "https://invalid.example.com/cimd.json"
-    
+
     # Mock fetch failure
     with patch.object(
         oauth_proxy._cimd_fetcher,
@@ -104,7 +102,7 @@ async def test_cimd_client_failed_fetch(oauth_proxy):
         side_effect=Exception("Network error"),
     ):
         client = await oauth_proxy.get_client(client_id_url)
-        
+
         # Should return None to trigger "client not found" error
         assert client is None
 
@@ -115,7 +113,7 @@ async def test_trusted_cimd_auto_approval(oauth_proxy):
     # Create a transaction
     transaction_id = "test-txn-123"
     client_id = "https://trusted.com/cimd.json"
-    
+
     # Mock CIMD document for trusted domain
     mock_doc = Mock()
     mock_doc.client_name = "Trusted Client"
@@ -123,7 +121,7 @@ async def test_trusted_cimd_auto_approval(oauth_proxy):
     mock_doc.grant_types = ["authorization_code"]
     mock_doc.scope = "read"
     mock_doc.token_endpoint_auth_method = "none"
-    
+
     with patch.object(
         oauth_proxy._cimd_fetcher,
         "fetch_document",
@@ -131,7 +129,7 @@ async def test_trusted_cimd_auto_approval(oauth_proxy):
     ):
         # The authorization flow should detect CIMD and auto-approve
         # when showing consent page for trusted domain
-        
+
         # Verify trust policy recognizes the domain
         assert oauth_proxy._cimd_trust_policy.is_trusted(client_id)
         assert oauth_proxy._cimd_trust_policy.auto_approve_trusted
@@ -141,7 +139,7 @@ async def test_trusted_cimd_auto_approval(oauth_proxy):
 async def test_untrusted_cimd_requires_consent(oauth_proxy):
     """Test that untrusted CIMD clients still require consent."""
     client_id = "https://untrusted.com/cimd.json"
-    
+
     # Mock CIMD document for untrusted domain
     mock_doc = Mock()
     mock_doc.client_name = "Untrusted Client"
@@ -149,7 +147,7 @@ async def test_untrusted_cimd_requires_consent(oauth_proxy):
     mock_doc.grant_types = ["authorization_code"]
     mock_doc.scope = "read"
     mock_doc.token_endpoint_auth_method = "none"
-    
+
     with patch.object(
         oauth_proxy._cimd_fetcher,
         "fetch_document",
@@ -167,7 +165,7 @@ async def test_cimd_with_wildcard_redirect_uri():
         issuer="https://example.com",
         required_scopes=["read"],
     )
-    
+
     proxy = OAuthProxy(
         upstream_authorization_endpoint="https://idp.example.com/authorize",
         upstream_token_endpoint="https://idp.example.com/token",
@@ -178,9 +176,9 @@ async def test_cimd_with_wildcard_redirect_uri():
         client_storage=MemoryStore(),
         allowed_client_redirect_uris=["http://localhost:*"],
     )
-    
+
     client_id_url = "https://app.example.com/cimd.json"
-    
+
     # Mock CIMD document with wildcard redirect URI
     mock_doc = Mock()
     mock_doc.client_name = "Test Client"
@@ -188,14 +186,14 @@ async def test_cimd_with_wildcard_redirect_uri():
     mock_doc.grant_types = ["authorization_code"]
     mock_doc.scope = "read"
     mock_doc.token_endpoint_auth_method = "none"
-    
+
     with patch.object(
         proxy._cimd_fetcher,
         "fetch_document",
         return_value=mock_doc,
     ):
         client = await proxy.get_client(client_id_url)
-        
+
         # Should have allowed_redirect_uri_patterns set from proxy
         assert client is not None
-        assert client.allowed_redirect_uri_patterns == ["http://localhost:*"]
+        assert client.allowed_redirect_uri_patterns == ["http://localhost:*"]  # type: ignore[attr-defined]

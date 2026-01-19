@@ -3,7 +3,6 @@
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
-import httpx
 import pytest
 from pydantic import AnyHttpUrl
 
@@ -15,7 +14,6 @@ from fastmcp.server.auth.cimd import (
     is_cimd_client_id,
     validate_cimd_document,
 )
-
 
 # -------------------------------------------------------------------------
 # CIMDDocument Tests
@@ -103,7 +101,9 @@ def test_trust_policy_wildcard_subdomain():
     )
     assert policy.is_trusted("https://app.example.com/cimd.json")
     assert policy.is_trusted("https://api.example.com/client.json")
-    assert not policy.is_trusted("https://example.com/cimd.json")  # No wildcard for apex
+    assert not policy.is_trusted(
+        "https://example.com/cimd.json"
+    )  # No wildcard for apex
     assert not policy.is_trusted("https://evil.com/cimd.json")
 
 
@@ -116,7 +116,7 @@ def test_trust_policy_blocklist():
     assert not policy.is_trusted("https://evil.com/cimd.json")
     assert policy.is_blocked("https://evil.com/cimd.json")
     assert policy.is_blocked("https://scam.spam.com/cimd.json")
-    
+
     # Blocklist takes precedence over trusted
     policy2 = CIMDTrustPolicy(
         trusted_domains=["evil.com"],
@@ -135,7 +135,7 @@ def test_trust_policy_blocklist():
 async def test_fetcher_valid_document():
     """Test fetching a valid CIMD document."""
     fetcher = CIMDFetcher()
-    
+
     # Mock HTTP response
     mock_response = Mock()
     mock_response.status_code = 200
@@ -147,17 +147,17 @@ async def test_fetcher_valid_document():
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     }
-    
+
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__.return_value = mock_client
         mock_client.get.return_value = mock_response
         mock_client_class.return_value = mock_client
-        
+
         # Mock SSRF check to bypass DNS resolution
         with patch.object(fetcher, "_check_ssrf", return_value=None):
             doc = await fetcher.fetch_document("https://example.com/cimd.json")
-            
+
             assert doc.client_name == "Test Client"
             assert len(doc.redirect_uris) == 1
 
@@ -166,7 +166,7 @@ async def test_fetcher_valid_document():
 async def test_fetcher_caching():
     """Test that fetcher caches documents."""
     fetcher = CIMDFetcher(cache_max_age=60)
-    
+
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.headers = {"cache-control": "max-age=30"}
@@ -174,23 +174,23 @@ async def test_fetcher_caching():
         "client_name": "Test Client",
         "redirect_uris": ["http://localhost:8080/callback"],
     }
-    
+
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__.return_value = mock_client
         mock_client.get.return_value = mock_response
         mock_client_class.return_value = mock_client
-        
+
         # Mock SSRF check
         with patch.object(fetcher, "_check_ssrf", return_value=None):
             # First fetch - should hit network
             doc1 = await fetcher.fetch_document("https://example.com/cimd.json")
             assert mock_client.get.call_count == 1
-            
+
             # Second fetch - should use cache
             doc2 = await fetcher.fetch_document("https://example.com/cimd.json")
             assert mock_client.get.call_count == 1  # Still 1
-            
+
             assert doc1.client_name == doc2.client_name
 
 
@@ -198,7 +198,7 @@ async def test_fetcher_caching():
 async def test_fetcher_skip_cache():
     """Test skipping cache."""
     fetcher = CIMDFetcher()
-    
+
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.headers = {}
@@ -206,20 +206,22 @@ async def test_fetcher_skip_cache():
         "client_name": "Test Client",
         "redirect_uris": ["http://localhost:8080/callback"],
     }
-    
+
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__.return_value = mock_client
         mock_client.get.return_value = mock_response
         mock_client_class.return_value = mock_client
-        
+
         # Mock SSRF check
         with patch.object(fetcher, "_check_ssrf", return_value=None):
             await fetcher.fetch_document("https://example.com/cimd.json")
             assert mock_client.get.call_count == 1
-            
+
             # Skip cache - should hit network again
-            await fetcher.fetch_document("https://example.com/cimd.json", skip_cache=True)
+            await fetcher.fetch_document(
+                "https://example.com/cimd.json", skip_cache=True
+            )
             assert mock_client.get.call_count == 2
 
 
@@ -227,7 +229,7 @@ async def test_fetcher_skip_cache():
 async def test_fetcher_rejects_http():
     """Test that fetcher rejects non-HTTPS URLs."""
     fetcher = CIMDFetcher()
-    
+
     with pytest.raises(ValueError, match="Invalid CIMD URL"):
         await fetcher.fetch_document("http://example.com/cimd.json")
 
@@ -236,7 +238,7 @@ async def test_fetcher_rejects_http():
 async def test_fetcher_rejects_fragment():
     """Test that fetcher rejects URLs with fragments."""
     fetcher = CIMDFetcher()
-    
+
     with pytest.raises(ValueError, match="Invalid CIMD URL"):
         await fetcher.fetch_document("https://example.com/cimd.json#frag")
 
@@ -245,7 +247,7 @@ async def test_fetcher_rejects_fragment():
 async def test_fetcher_ssrf_protection_private_ip():
     """Test SSRF protection against private IPs."""
     fetcher = CIMDFetcher()
-    
+
     # Mock DNS resolution to return a private IP
     with patch("socket.getaddrinfo") as mock_getaddrinfo:
         mock_getaddrinfo.return_value = [
@@ -259,7 +261,7 @@ async def test_fetcher_ssrf_protection_private_ip():
 async def test_fetcher_ssrf_protection_loopback():
     """Test SSRF protection against loopback addresses."""
     fetcher = CIMDFetcher()
-    
+
     # Mock DNS resolution to return loopback IP
     with patch("socket.getaddrinfo") as mock_getaddrinfo:
         mock_getaddrinfo.return_value = [
@@ -274,7 +276,7 @@ async def test_fetcher_blocklist():
     """Test domain blocklist."""
     policy = CIMDTrustPolicy(domain_blocklist=["evil.com"])
     fetcher = CIMDFetcher(trust_policy=policy)
-    
+
     with pytest.raises(ValueError, match="blocked"):
         await fetcher.fetch_document("https://evil.com/cimd.json")
 
@@ -283,18 +285,18 @@ async def test_fetcher_blocklist():
 async def test_fetcher_invalid_json():
     """Test handling of invalid JSON."""
     fetcher = CIMDFetcher()
-    
+
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.headers = {}
     mock_response.json.side_effect = json.JSONDecodeError("test", "doc", 0)
-    
+
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__.return_value = mock_client
         mock_client.get.return_value = mock_response
         mock_client_class.return_value = mock_client
-        
+
         # Mock SSRF check
         with patch.object(fetcher, "_check_ssrf", return_value=None):
             with pytest.raises(ValueError, match="Failed to parse CIMD document JSON"):
@@ -305,7 +307,7 @@ async def test_fetcher_invalid_json():
 async def test_fetcher_invalid_document():
     """Test handling of invalid CIMD document."""
     fetcher = CIMDFetcher()
-    
+
     mock_response = Mock()
     mock_response.status_code = 200
     mock_response.headers = {}
@@ -313,13 +315,13 @@ async def test_fetcher_invalid_document():
         "client_name": "Test",
         "redirect_uris": [],  # Empty list should fail validation
     }
-    
+
     with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.__aenter__.return_value = mock_client
         mock_client.get.return_value = mock_response
         mock_client_class.return_value = mock_client
-        
+
         # Mock SSRF check
         with patch.object(fetcher, "_check_ssrf", return_value=None):
             with pytest.raises(ValueError, match="Invalid CIMD document"):
@@ -335,7 +337,7 @@ def test_is_cimd_client_id():
     """Test CIMD client ID detection."""
     assert is_cimd_client_id("https://example.com/cimd.json")
     assert is_cimd_client_id("https://api.example.com/client-metadata")
-    
+
     assert not is_cimd_client_id("http://example.com/cimd.json")  # Not HTTPS
     assert not is_cimd_client_id("random-client-id")
     assert not is_cimd_client_id("client_12345")
@@ -349,7 +351,7 @@ def test_create_cimd_document():
         client_uri="https://example.com",
         scope="read write",
     )
-    
+
     assert doc["client_name"] == "Test Client"
     assert doc["redirect_uris"] == ["http://localhost:*/callback"]
     assert doc["client_uri"] == "https://example.com"
@@ -367,7 +369,7 @@ def test_validate_cimd_document_valid():
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     }
-    
+
     is_valid, error = validate_cimd_document(doc)
     assert is_valid
     assert error is None
@@ -380,7 +382,7 @@ def test_validate_cimd_document_invalid():
         # Missing redirect_uris (required field)
         "redirect_uris": [],  # Empty list should fail
     }
-    
+
     is_valid, error = validate_cimd_document(doc)
     assert not is_valid
     assert error is not None
