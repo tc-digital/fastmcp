@@ -523,19 +523,23 @@ def create_cimd_document(
         >>> import json
         >>> print(json.dumps(doc, indent=2))
     """
-    document = CIMDDocument(
-        client_name=client_name,
-        redirect_uris=[AnyHttpUrl(uri) for uri in redirect_uris],
-        client_uri=AnyHttpUrl(client_uri) if client_uri else None,
-        logo_uri=AnyHttpUrl(logo_uri) if logo_uri else None,
-        grant_types=grant_types or ["authorization_code"],
-        response_types=["code"],
-        scope=scope,
-        token_endpoint_auth_method="none",
-    )
+    # Build document dict directly to avoid pydantic validation of wildcards
+    document_dict: dict[str, Any] = {
+        "client_name": client_name,
+        "redirect_uris": redirect_uris,
+        "grant_types": grant_types or ["authorization_code"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    }
     
-    # Return as dict for JSON serialization
-    return document.model_dump(exclude_none=True, mode="json")
+    if client_uri:
+        document_dict["client_uri"] = client_uri
+    if logo_uri:
+        document_dict["logo_uri"] = logo_uri
+    if scope:
+        document_dict["scope"] = scope
+    
+    return document_dict
 
 
 def validate_cimd_document(data: dict[str, Any]) -> tuple[bool, str | None]:
