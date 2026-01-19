@@ -56,6 +56,11 @@ from typing_extensions import override
 
 from fastmcp import settings
 from fastmcp.server.auth.auth import OAuthProvider, TokenVerifier
+from fastmcp.server.auth.cimd import (
+    CIMDFetcher,
+    CIMDTrustPolicy,
+    is_cimd_client_id,
+)
 from fastmcp.server.auth.handlers.authorize import AuthorizationHandler
 from fastmcp.server.auth.jwt_issuer import (
     JWTIssuer,
@@ -266,6 +271,8 @@ def create_consent_html(
     server_website_url: str | None = None,
     client_website_url: str | None = None,
     csp_policy: str | None = None,
+    is_cimd_client: bool = False,
+    is_trusted_cimd: bool = False,
 ) -> str:
     """Create a styled HTML consent page for OAuth authorization requests.
 
@@ -274,6 +281,8 @@ def create_consent_html(
             If None, uses the built-in CSP policy with appropriate directives.
             If empty string "", disables CSP entirely (no meta tag is rendered).
             If a non-empty string, uses that as the CSP policy value.
+        is_cimd_client: Whether this is a CIMD (URL-based) client
+        is_trusted_cimd: Whether this CIMD client is from a trusted domain
     """
     import html as html_module
 
@@ -287,10 +296,32 @@ def create_consent_html(
     else:
         server_display = server_name_escaped
 
+    # Add verified domain badge for CIMD clients
+    cimd_badge = ""
+    if is_cimd_client:
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(client_id)
+            domain = parsed.hostname or "unknown"
+
+            if is_trusted_cimd:
+                badge_style = "background: #10b981; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 8px;"
+                cimd_badge = (
+                    f'<span style="{badge_style}">✓ Trusted Domain ({domain})</span>'
+                )
+            else:
+                badge_style = "background: #3b82f6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 8px;"
+                cimd_badge = (
+                    f'<span style="{badge_style}">Verified Domain ({domain})</span>'
+                )
+        except Exception:
+            pass
+
     # Build intro box with call-to-action
     intro_box = f"""
         <div class="info-box">
-            <p>The application <strong>{client_display}</strong> wants to access the MCP server <strong>{server_display}</strong>. Please ensure you recognize the callback address below.</p>
+            <p>The application <strong>{client_display}{cimd_badge}</strong> wants to access the MCP server <strong>{server_display}</strong>. Please ensure you recognize the callback address below.</p>
         </div>
     """
 
@@ -657,6 +688,9 @@ class OAuthProxy(OAuthProvider):
         consent_csp_policy: str | None = None,
         # Token expiry fallback
         fallback_access_token_expiry_seconds: int | None = None,
+        # CIMD support
+        cimd_trust_policy: CIMDTrustPolicy | None = None,
+        cimd_cache_max_age: int = 24 * 60 * 60,  # 24 hours
     ):
         """Initialize the OAuth proxy provider.
 
@@ -711,6 +745,11 @@ class OAuthProxy(OAuthProvider):
                 defaults: 1 hour if a refresh token is available (since we can refresh),
                 or 1 year if no refresh token (for API-key-style tokens like GitHub OAuth Apps).
                 Set explicitly to override these defaults.
+            cimd_trust_policy: Optional CIMD trust policy for controlling which CIMD clients
+                are trusted and can be auto-approved. If None, all CIMD clients will require
+                consent approval (same as DCR clients).
+            cimd_cache_max_age: Maximum age in seconds for caching CIMD documents (default 24 hours per spec).
+                The actual cache duration respects HTTP Cache-Control headers but never exceeds this value.
         """
 
         # Always enable DCR since we implement it locally for MCP clients
@@ -893,10 +932,67 @@ class OAuthProxy(OAuthProvider):
         # Use the provided token validator
         self._token_validator: TokenVerifier = token_verifier
 
+        # CIMD support
+        self._cimd_trust_policy: CIMDTrustPolicy = (
+            cimd_trust_policy or CIMDTrustPolicy()
+        )
+        self._cimd_fetcher: CIMDFetcher = CIMDFetcher(
+            trust_policy=self._cimd_trust_policy,
+            cache_max_age=cimd_cache_max_age,
+        )
+
         logger.debug(
             "Initialized OAuth proxy provider with upstream server %s",
             self._upstream_authorization_endpoint,
         )
+
+    # -------------------------------------------------------------------------
+    # CIMD Support
+    # -------------------------------------------------------------------------
+
+    async def _handle_cimd_client(
+        self, client_id_url: str
+    ) -> OAuthClientInformationFull | None:
+        """Handle CIMD client by fetching and validating the metadata document.
+
+        Args:
+            client_id_url: The HTTPS URL that serves as the client_id
+
+        Returns:
+            OAuthClientInformationFull constructed from the CIMD document
+
+        Raises:
+            Various exceptions if the CIMD document is invalid or unreachable
+        """
+        try:
+            # Fetch and validate CIMD document
+            cimd_doc = await self._cimd_fetcher.fetch_document(client_id_url)
+
+            # Create ProxyDCRClient from CIMD document
+            proxy_client = ProxyDCRClient(
+                client_id=client_id_url,  # The URL is the client_id
+                client_secret=None,
+                redirect_uris=[AnyUrl(str(uri)) for uri in cimd_doc.redirect_uris],
+                grant_types=cimd_doc.grant_types,
+                scope=cimd_doc.scope or self._default_scope_str,
+                token_endpoint_auth_method=cimd_doc.token_endpoint_auth_method,  # type: ignore[arg-type]
+                allowed_redirect_uri_patterns=self._allowed_client_redirect_uris,
+                client_name=cimd_doc.client_name,
+            )
+
+            logger.info(
+                "Successfully loaded CIMD client: %s (name: %s, trusted: %s)",
+                client_id_url,
+                cimd_doc.client_name or "N/A",
+                self._cimd_trust_policy.is_trusted(client_id_url),
+            )
+
+            return proxy_client
+
+        except Exception as e:
+            logger.error("Failed to load CIMD client %s: %s", client_id_url, e)
+            # Return None to trigger "client not found" error from SDK
+            return None
 
     # -------------------------------------------------------------------------
     # MCP Path Configuration
@@ -964,12 +1060,20 @@ class OAuthProxy(OAuthProvider):
 
     @override
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        """Get client information by ID. This is generally the random ID
-        provided to the DCR client during registration, not the upstream client ID.
+        """Get client information by ID.
+
+        Supports both:
+        1. Traditional DCR: client_id is a random ID from registration
+        2. CIMD: client_id is an HTTPS URL pointing to a metadata document
 
         For unregistered clients, returns None (which will raise an error in the SDK).
         """
-        # Load from storage
+        # Check if this is a CIMD client ID (HTTPS URL)
+        if is_cimd_client_id(client_id):
+            logger.debug("Detected CIMD client_id: %s", client_id)
+            return await self._handle_cimd_client(client_id)
+
+        # Traditional DCR: Load from storage
         if not (client := await self._client_store.get(key=client_id)):
             return None
 
@@ -2170,6 +2274,32 @@ class OAuthProxy(OAuthProvider):
         client = await self.get_client(txn["client_id"])
         client_name = getattr(client, "client_name", None) if client else None
 
+        # Check if this is a CIMD client and if it's trusted
+        is_cimd = is_cimd_client_id(txn["client_id"])
+        is_trusted_cimd = is_cimd and self._cimd_trust_policy.is_trusted(
+            txn["client_id"]
+        )
+
+        # Auto-approve trusted CIMD clients if configured
+        if is_trusted_cimd and self._cimd_trust_policy.auto_approve_trusted:
+            logger.info(
+                "Auto-approving trusted CIMD client: %s",
+                txn["client_id"],
+            )
+            # Add to approved list and redirect to upstream
+            approved.add(client_key)
+            approved_encoded = self._encode_list_cookie(list(approved))
+
+            upstream_url = self._build_upstream_authorize_url(txn_id, txn)
+            response = RedirectResponse(url=upstream_url, status_code=302)
+            self._set_list_cookie(
+                response,
+                "MCP_APPROVED_CLIENTS",
+                approved_encoded,
+                max_age=60 * 60 * 24 * 90,  # 90 days
+            )
+            return response
+
         # Extract server metadata from app state
         fastmcp = getattr(request.app.state, "fastmcp_server", None)
 
@@ -2194,6 +2324,8 @@ class OAuthProxy(OAuthProvider):
             server_icon_url=server_icon_url,
             server_website_url=server_website_url,
             csp_policy=self._consent_csp_policy,
+            is_cimd_client=is_cimd,
+            is_trusted_cimd=is_trusted_cimd,
         )
         response = create_secure_html_response(html)
         # Store CSRF in cookie with short lifetime
