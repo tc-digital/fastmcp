@@ -5,9 +5,9 @@ Registration where clients host a static JSON document at an HTTPS URL, and that
 URL becomes their client_id.
 
 References:
-- SEP-991: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/991
-- IETF Draft: https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/
-- MCP SDK v1.23.0: https://github.com/modelcontextprotocol/python-sdk/releases/tag/v1.23.0
+- [SEP-991](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/991)
+- [IETF Draft](https://datatracker.ietf.org/doc/draft-ietf-oauth-client-id-metadata-document/)
+- [MCP SDK v1.23.0](https://github.com/modelcontextprotocol/python-sdk/releases/tag/v1.23.0)
 """
 
 from __future__ import annotations

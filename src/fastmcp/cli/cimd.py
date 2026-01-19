@@ -60,21 +60,13 @@ def create(
 
     Examples:
         # Create a basic CIMD document
-        fastmcp cimd create --name "My App" --redirect-uris "http://localhost:*/callback"
+        $ fastmcp cimd create --name "My App" --redirect-uris "http://localhost:*/callback"
 
         # Create with additional metadata
-        fastmcp cimd create \\
-            --name "My App" \\
-            --redirect-uris "http://localhost:*/callback" \\
-            --client-uri "https://myapp.com" \\
-            --logo-uri "https://myapp.com/logo.png" \\
-            --scope "read write"
+        $ fastmcp cimd create --name "My App" --redirect-uris "http://localhost:*/callback" --client-uri "https://myapp.com" --logo-uri "https://myapp.com/logo.png" --scope "read write"
 
         # Save to file
-        fastmcp cimd create \\
-            --name "My App" \\
-            --redirect-uris "http://localhost:*/callback" \\
-            --output client-metadata.json
+        $ fastmcp cimd create --name "My App" --redirect-uris "http://localhost:*/callback" --output client-metadata.json
     """
     try:
         # Create the CIMD document
